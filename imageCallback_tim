@@ -1,0 +1,39 @@
+void AprilTagModule::tagArrayCallback(const confusion::TagArray::ConstPtr &msg) {
+  std::cout << "tagArrayCallback" << std::endl;
+  if (!msg->tags.empty()) {
+    std::vector<TagDetection> tagDetections;
+    for (int i = 0; i < (msg->tags).size(); ++i) {
+      tagDetections.push_back(TagDetection(msg->tags[i]));
+    }
+    processTagDetections(msg->header.stamp.toSec(), tagDetections);
+  }
+}
+
+void AprilTagModule::imageCallback(const sensor_msgs::ImageConstPtr &msg) {
+  // Only process images at the desired rate
+  if (msg->header.stamp.toSec() - t_last_image_ < maxImageDt_) {
+    return;
+  }
+  t_last_image_ = msg->header.stamp.toSec();
+
+  //Detect tags in the image
+  if (tagDetectionRunning_) {
+    std::cout << "WARNING: New image received even though tag detection is running. Dropping the image." << std::endl;
+    return;
+  }
+
+  tagDetectionRunning_ = true;
+  std::thread tagDetectionThread(&AprilTagModule::tagDetection, this, msg);
+  tagDetectionThread.detach();
+}
+
+void TagTracker<StateType>::imageCallback(const sensor_msgs::ImageConstPtr &msg) {
+  if (tracking_) {
+    confusion::ImuStateParameters state = imuPropagator_.propagate(msg->header.stamp.toSec());
+
+    cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::RGB8);
+    aprilTagInterface_->projectTagsIntoImage(state.T_w_i_, "cam", cv_ptr->image);
+
+    imagePub_.publish(cv_ptr->toImageMsg());
+  }
+}
